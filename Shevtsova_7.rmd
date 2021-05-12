@@ -1,0 +1,257 @@
+---
+title: "Упражнение 7"
+author: "Шевцова Яна"
+date: "8 05 2021"
+output: html_document
+---
+
+# Задание
+
+Необходимо построить две модели:
+
+ - зависимости непрерывного отклика от одного непрерывного предиктора;
+ - зависимости вероятности (логит) от одного непрерывного предиктора.
+
+
+Для каждой модели:
+
+ - Указать смысл переменных модели, метод оценки и настроечный параметр (степень полинома, гиперпараметр λ, ширина окна s, число узлов – в зависимости от метода).
+
+ -  Подогнать модель на всех наблюдениях, меняя значение настроечного параметра.
+
+ -  Обосновать оптимальное значение настроечного параметра подходящим методом (кросс-валидация, ANOVA).
+
+ -  Сделать прогноз на обучающую выборку по лучшей модели: модельные значения и ошибки прогноза.
+
+ -  Построить график с фактическими наблюдениями, модельной кривой и 95% доверительными интервалами прогноза.
+
+# Вариант 29 (10)
+
+Модели: натуральный кубический сплайн.
+
+Данные: *Auto {ISLR}*.
+
+```{r setup, include=FALSE}
+library('ISLR')              # набор данных Auto
+library('splines')           # сплайны
+library('gam')               # обобщённые аддитивные модели
+library('akima')             # график двумерной плоскости
+library('ggplot2')           # красивые графики
+
+# загрузка данных Auto
+data('Auto')
+
+# ядро
+my.seed <- 10
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Работаем с набором данных по расходу бензина, лошадиной силе и другой информация для 392 автомобилей. Присоединяем его к пространству имён функцией *attach()*, и дальше обращаемся напрямую к столбцам таблицы.
+
+```{r}
+attach(Auto)
+```
+
+Работаем со столбцами:
+
+ -  *displacement* - Объем двигателя (куб. Дюймов);
+ 
+ -  *acceleration* - Время ускорения от 0 до 60 миль в час (сек.).
+
+# Натуральный кубический сплайн
+
+Судя по графику ниже, взаимосвязь объема двигателя и времени ускорения нелинейна. Наблюдается также группа наблюдений с высоким значением displacement, граница проходит примерно на уровне 285.
+
+```{r}
+gp <- ggplot(data = Auto, aes(x = acceleration, y = displacement))
+gp <- gp + geom_point() + geom_abline(slope = 0, intercept = 280, col = 'red')
+gp
+```
+
+# Зависимость объема двигателя от времени ускорения от 0 до 60 миль в час (модель 1)
+
+Построим кубический сплайн с тремя узлами.
+
+```{r}
+# Границы изменения переменной acceleration
+acclims <- range(acceleration)
+
+# значения acceleration, для которых делаем прогноз (от min до max с шагом 1)
+acc.grid <- seq(from = acclims[1], to = acclims[2])
+# кубический сплайн с тремя узлами, 6 степеней свободы
+fit <- lm(displacement ~ bs(acceleration, df = 6), data = Auto)
+# прогноз
+preds.spl <- predict(fit, newdata = list(acceleration = acc.grid), se = T)
+
+# натуральный сплайн
+fit2 <- lm(displacement ~ ns(acceleration, df = 4), data = Auto)
+preds.spl2 <- predict(fit2, newdata = list(acceleration = acc.grid), se = T)
+
+par(mfrow = c(1, 1), mar = c(4.5, 4.5, 1, 8.5), oma = c(0, 0, 0, 0), xpd = T)
+
+# наблюдения
+plot(acceleration, displacement, col = 'grey')
+
+# модель кубического сплайна
+lines(acc.grid, preds.spl$fit, lwd = 2)
+
+# доверительный интервал
+lines(acc.grid, preds.spl$fit + 2*preds.spl$se, lty = 'dashed')
+lines(acc.grid, preds.spl$fit - 2*preds.spl$se, lty = 'dashed')
+
+# натуральный сплайн
+lines(acc.grid, preds.spl2$fit, col = 'red', lwd = 2)
+
+# легенда
+legend("topright", inset = c(-0.3, 0),
+       c('Cubic \n with 3 nodes', 'Natural'),
+       lwd = rep(2, 2), col = c('black', 'red'))
+
+# заголовок
+title("Splines mogel 1")
+```
+
+# Определение оптимального настроечного параметра (модель 1)
+
+```{r}
+fit.1 <- lm(displacement ~ bs(acceleration, df = 3), data = Auto)
+fit.2 <- lm(displacement ~ bs(acceleration, df = 4), data = Auto)
+fit.3 <- lm(displacement ~ bs(acceleration, df = 5), data = Auto)
+fit.4 <- lm(displacement ~ bs(acceleration, df = 6), data = Auto)
+fit.5 <- lm(displacement ~ bs(acceleration, df = 7), data = Auto)
+
+
+# Дисперсионный анализ
+round(anova(fit.1, fit.2, fit.3, fit.4, fit.5), 2)
+
+# Лучшая модель со степенью свободы = 5
+best.fit.1 <- fit.3
+```
+
+# Прогноз на обучающую выборку по лучшей модели (модель 1)
+
+```{r}
+# Прогноз по лучшей модели
+preds <- predict(best.fit.1, data.frame(acceleration = acc.grid), se = T)
+
+# Границы доверительного интервала для площади нерозничных торговых площадей
+se.bands <- cbind(lower.bound = preds$fit - 2*preds$se.fit,
+                  upper.bound = preds$fit + 2*preds$se.fit)
+
+# Смотрим результат
+round(head(se.bands), 2)
+
+# Стандартные ошибки
+round(preds$se.fit, 2)
+```
+
+# График с фактическими наблюдениями, модельной кривой и 95% доверительными интервалами прогноза (модель 1)
+
+```{r}
+# Сетка для графика
+plot(acceleration, displacement, xlim = acclims, type = 'n',
+     ylab = 'P(Displacement | Acceleration)')
+
+# Фактические наблюдения показываем засечки
+points(jitter(acceleration), displacement, cex = 0.5, pch = '|', col = 'darkgrey')
+
+pfit <- preds$fit
+# Модель
+lines(acc.grid, pfit, lwd = 2, col = 'red')
+
+# Доверительные интервалы
+matlines(acc.grid, se.bands, lwd = 1, col = 'darkgreen', lty = 3)
+
+# Заголовок
+title('Cubic spline mogel 1')
+```
+
+# Зависимость объема двигателя > 280 от времени ускорения от 0 до 60 миль в час (модель 2)
+
+```{r}
+par(mfrow = c(1, 1), mar = c(4.5, 4.5, 1, 8.5), oma = c(0, 0, 0, 0), xpd = T)
+
+# график
+plot(acceleration, I(displacement > 280), xlim = acclims, cex = 0.5, col = 'darkgrey')
+
+title('Cubic spline mogel 2')
+
+fit2.1 <- lm(I(displacement > 280) ~ bs(acceleration, df = 6), data = Auto)
+# прогноз
+preds.spl.2 <- predict(fit2.1, newdata = list(acceleration = acc.grid), se = T)
+
+# натуральный сплайн
+fit2.2 <- lm(I(displacement > 280) ~ ns(acceleration, df = 4), data = Auto)
+preds.spl2.2 <- predict(fit2.2, newdata = list(acceleration = acc.grid), se = T)
+
+# модель кубического сплайна
+lines(acc.grid, preds.spl.2$fit, lwd = 2)
+
+# доверительный интервал
+lines(acc.grid, preds.spl.2$fit + 2*preds.spl.2$se, lty = 'dashed')
+lines(acc.grid, preds.spl.2$fit - 2*preds.spl.2$se, lty = 'dashed')
+
+# натуральный сплайн
+lines(acc.grid, preds.spl2.2$fit, col = 'red', lwd = 2)
+
+# легенда
+legend("topright", inset = c(-0.3, 0),
+       c('Cubic \n with 3 nodes', 'Nodes'),
+       lwd = rep(2, 2), col = c('black', 'red'))
+```
+
+# Определение оптимального настроечного параметра (модель 2)
+```{r}
+fit.1 <- lm(I(displacement > 280) ~ bs(acceleration, df = 3), data = Auto)
+fit.2 <- lm(I(displacement > 280) ~ bs(acceleration, df = 4), data = Auto)
+fit.3 <- lm(I(displacement > 280) ~ bs(acceleration, df = 5), data = Auto)
+fit.4 <- lm(I(displacement > 280) ~ bs(acceleration, df = 6), data = Auto)
+fit.5 <- lm(I(displacement > 280) ~ bs(acceleration, df = 7), data = Auto)
+
+
+# Дисперсионный анализ
+round(anova(fit.1, fit.2, fit.3, fit.4, fit.5), 2)
+
+# Лучшая модель со степенью свободы = 6
+best.fit.2 <- fit.4
+```
+
+# Прогноз на обучающую выборку по лучшей модели (модель 2)
+
+```{r}
+# Прогноз по лучшей модели
+preds <- predict(best.fit.2, data.frame(acceleration = acc.grid), se = T)
+
+# Границы доверительного интервала для площади нерозничных торговых площадей
+se.bands <- cbind(lower.bound = preds$fit - 2*preds$se.fit,
+                  upper.bound = preds$fit + 2*preds$se.fit)
+
+# Смотрим результат
+round(head(se.bands), 2)
+
+# Стандартные ошибки
+round(preds$se.fit, 2)
+```
+
+# График с фактическими наблюдениями, модельной кривой и 95% доверительными интервалами прогноза (модель 2)
+
+```{r}
+# Сетка для графика
+plot(acceleration, I(displacement > 280), xlim = acclims, type = 'n',
+     ylab = 'P(Displacement > 280 | Acceleration)')
+
+# Фактические наблюдения показываем засечки
+points(jitter(acceleration), I((displacement>280)/5), cex = 0.5, pch = '|', col = 'darkgrey')
+
+pfit <- preds$fit
+# Модель
+lines(acc.grid, pfit, lwd = 2, col = 'red')
+
+# Доверительные интервалы
+matlines(acc.grid, se.bands, lwd = 1, col = 'darkgreen', lty = 3)
+
+# Заголовок
+title('Cubic spline mogel 2')
+```
+
+
